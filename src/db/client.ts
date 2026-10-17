@@ -18,8 +18,8 @@ export class DbClient {
     this.spawn()
   }
 
-  run = (seed: number, sql: string) => this.call<RunResult>('run', seed, sql)
-  grade = (seed: number, sql: string) => this.call<Verdict>('grade', seed, sql)
+  run = (roomId: string, seed: number, sql: string) => this.call<RunResult>({ kind: 'run', roomId, seed, sql })
+  grade = (roomId: string, seed: number, sql: string) => this.call<Verdict>({ kind: 'grade', roomId, seed, sql })
 
   private spawn() {
     this.worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
@@ -32,22 +32,22 @@ export class DbClient {
     })
   }
 
-  private async call<T>(kind: Request['kind'], seed: number, sql: string): Promise<T> {
+  private async call<T>(req: Omit<Request, 'id'>): Promise<T> {
     await this.ready
     const id = this.nextId++
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => this.restart(), TIMEOUT_MS[kind])
+      const timer = setTimeout(() => this.restart(), TIMEOUT_MS[req.kind])
       this.pending.set(id, {
         resolve: (v) => (clearTimeout(timer), resolve(v)),
         reject: (e) => (clearTimeout(timer), reject(e)),
       })
-      this.worker.postMessage({ id, kind, seed, sql } satisfies Request)
+      this.worker.postMessage({ id, ...req } satisfies Request)
     })
   }
 
   private restart() {
     this.worker.terminate()
-    const error = new Error('The query ran too long, so the dungeon was reset. Check for an endless query.')
+    const error = new Error('The query ran too long and the dungeon reset itself. Look for a loop that never ends, like UNION ALL in a recursive query.')
     for (const p of this.pending.values()) p.reject(error)
     this.pending.clear()
     this.spawn()
